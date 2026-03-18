@@ -74,12 +74,35 @@ async function getStats(req, res) {
       { $project: { _id: 0, status: '$_id', count: 1 } },
     ]);
 
+    // Hourly averages per building — what hour of day is each building quietest?
+    // Groups by building + hour-of-day (0–23), averages noise across all days in range.
+    const hourlyByBuilding = await NoiseData.aggregate([
+      { $match: { timestamp: { $gte: since } } },
+      { $group: {
+        _id: {
+          building_name: '$building_name',
+          hour: { $hour: '$timestamp' },
+        },
+        avgNoise: { $avg: '$noise_level' },
+        count: { $sum: 1 },
+      }},
+      { $project: {
+        _id: 0,
+        building_name: '$_id.building_name',
+        hour: '$_id.hour',
+        avgNoise: { $round: ['$avgNoise', 1] },
+        count: 1,
+      }},
+      { $sort: { building_name: 1, hour: 1 } },
+    ]);
+
     res.json({
       quietestRooms: roomAverages.slice(0, 5),
       loudestRooms:  roomAverages.slice(-5).reverse(),
       buildingAverages,
       dailyTrend,
       distribution,
+      hourlyByBuilding,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

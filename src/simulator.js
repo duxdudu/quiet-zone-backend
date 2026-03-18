@@ -2,13 +2,21 @@
  * IoT Sensor Simulator — runs embedded inside the server process.
  * Called by index.js on startup via startSimulator(broadcastFn).
  *
- * Timings (good for demo):
- *   - Sensor tick  : every 10 seconds  (visible live updates)
- *   - Category switch: every 30 seconds (rooms visibly change status)
+ * Each building has a distinct noise personality so statistics look
+ * meaningfully different across buildings:
+ *
+ *   MUHABURA  — mostly quiet study hall (library-like)
+ *   KARISIMBI — mixed, moderate-heavy (dorm block)
+ *   EISTENIN  — loud/critical prone (lab + common areas)
+ *   SABYINYO  — balanced but spikes at night
+ *
+ * Timings:
+ *   Sensor tick    : every 10 seconds
+ *   Category switch: every 30 seconds
  */
 
-const TICK_MS   = 10000;  // sensor reading every 10s
-const SWITCH_MS = 30000;  // category switch every 30s
+const TICK_MS   = 10000;
+const SWITCH_MS = 30000;
 
 const RANGES = {
   quiet:    [5,   38],
@@ -18,6 +26,28 @@ const RANGES = {
 };
 
 const CATEGORIES = ['quiet', 'moderate', 'loud', 'critical'];
+
+// Each building has weighted probabilities for each category.
+// weights[0]=quiet, [1]=moderate, [2]=loud, [3]=critical
+const BUILDING_PROFILES = {
+  MUHABURA:  { weights: [60, 25, 10,  5], label: 'Quiet study block' },
+  KARISIMBI: { weights: [20, 45, 25, 10], label: 'Mixed dorm block' },
+  EISTENIN:  { weights: [10, 20, 40, 30], label: 'Loud lab/common block' },
+  SABYINYO:  { weights: [30, 35, 25, 10], label: 'Balanced block' },
+};
+
+function weightedCategory(building_name) {
+  const profile = BUILDING_PROFILES[building_name];
+  if (!profile) return CATEGORIES[Math.floor(Math.random() * 4)];
+  const weights = profile.weights;
+  const total = weights.reduce((s, w) => s + w, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return CATEGORIES[i];
+  }
+  return CATEGORIES[0];
+}
 
 function buildAllRooms() {
   const defs = [
@@ -60,9 +90,9 @@ function startSimulator(onReading) {
   const latestNoiseMap = {};
 
   const allRooms  = buildAllRooms();
-  const roomState = allRooms.map((room, i) => ({
+  const roomState = allRooms.map((room) => ({
     ...room,
-    category: CATEGORIES[i % CATEGORIES.length],
+    category: weightedCategory(room.building_name),
   }));
 
   // ── Category switch ────────────────────────────────────────────────────────
@@ -73,9 +103,8 @@ function startSimulator(onReading) {
       .slice(0, switchCount);
 
     for (const idx of indices) {
-      const prev = roomState[idx].category;
-      const opts = CATEGORIES.filter(c => c !== prev);
-      roomState[idx].category = opts[Math.floor(Math.random() * opts.length)];
+      // Each room switches to a new category weighted by its building profile
+      roomState[idx].category = weightedCategory(roomState[idx].building_name);
     }
 
     const counts = { quiet: 0, moderate: 0, loud: 0, critical: 0 };
